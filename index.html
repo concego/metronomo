@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Metrônomo Acessível</title>
+    
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <h1>Metrônomo</h1>
+
+    <form id="form-metronomo">
+        <fieldset>
+            <legend>Controles de Tempo</legend>
+            
+            <label for="bpm">BPM (Batidas por Minuto):</label>
+            <input type="number" id="bpm" name="bpm" value="120" min="20" max="300">
+
+            <label for="compasso">Tempos por compasso:</label>
+            <select id="compasso" name="compasso">
+                <option value="1">1 (Sem acento)</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4" selected>4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+            </select>
+
+            <button type="button" id="btn-play-stop">Tocar Metrônomo</button>
+        </fieldset>
+
+        <fieldset>
+            <legend>Repertório</legend>
+
+            <label for="nome-musica">Nome da música para salvar:</label>
+            <input type="text" id="nome-musica" name="nome-musica" placeholder="Ex: Aquecimento Diário">
+            
+            <button type="button" id="btn-salvar">Salvar Configuração</button>
+
+            <br><br>
+
+            <label for="lista-musicas">Músicas salvas:</label>
+            <select id="lista-musicas" name="lista-musicas">
+                <option value="">Selecione uma música...</option>
+                </select>
+
+            <button type="button" id="btn-carregar">Carregar</button>
+            <button type="button" id="btn-excluir">Excluir</button>
+        </fieldset>
+    </form>
+
+    <script src="app.js"></script>
+</body>
+</html>
