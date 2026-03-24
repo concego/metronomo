@@ -1,228 +1,187 @@
-// Inicializa o motor de áudio (Web Audio API)
+// ==========================================
+// CONFIGURAÇÃO DE ÁUDIO (Web Audio API)
+// ==========================================
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let acentoBuffer = null;
-let tickBuffer = null;
+const buffers = {}; // Onde vamos guardar os sons carregados
 
-// Pegando os elementos do formulário
-const btnPlayStop = document.getElementById('btn-play-stop');
+// Função para buscar o arquivo de áudio e decodificar
+async function carregarSom(nome, caminho) {
+    try {
+        const response = await fetch(caminho);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        buffers[nome] = audioBuffer;
+    } catch (erro) {
+        console.error(`Erro ao carregar o som ${nome}:`, erro);
+    }
+}
+
+// Carregando todos os sons (Padrão e Novos)
+carregarSom('padrao-acento', 'sons/acento.wav');
+carregarSom('padrao-tick', 'sons/tick.wav');
+carregarSom('novo-acento', 'sons/acento1.wav');
+carregarSom('novo-tick', 'sons/tick1.wav');
+
+// Elementos da Interface
 const inputBpm = document.getElementById('bpm');
 const selectCompasso = document.getElementById('compasso');
+const btnPlayStop = document.getElementById('btn-play-stop');
+const selectTipoSom = document.getElementById('tipo-som');
 
-// Variáveis de controle de tempo
 let isPlaying = false;
-let currentBeat = 0;
-let nextNoteTime = 0.0;
+let tempoAtual = 0;
+let proximoTempoDeNota = 0.0;
 let timerID;
 
-// 1. Função que busca os arquivos na pasta "sons"
-async function carregarSons() {
-    try {
-        // Carrega o acento
-        const respAcento = await fetch('sons/acento.wav');
-        const arrayAcento = await respAcento.arrayBuffer();
-        acentoBuffer = await audioCtx.decodeAudioData(arrayAcento);
-
-        // Carrega o tick normal
-        const respTick = await fetch('sons/tick.wav');
-        const arrayTick = await respTick.arrayBuffer();
-        tickBuffer = await audioCtx.decodeAudioData(arrayTick);
-        
-        console.log("Sons carregados e prontos para o play!");
-    } catch (erro) {
-        console.error("Ops! Erro ao carregar os sons da pasta:", erro);
-    }
+// Lógica para agendar os bipes
+function agendarNota(numeroDaBatida, tempo) {
+    const oscilador = audioCtx.createBufferSource();
+    
+    // Define qual som usar (Acento ou Tick) e de qual família (Padrão ou Novo)
+    const familiaSom = selectTipoSom.value; // Pega o valor do select ('padrao' ou 'novo')
+    const tipoBatida = (numeroDaBatida === 0 && parseInt(selectCompasso.value) > 1) ? 'acento' : 'tick';
+    
+    // Toca o som correto baseado nas escolhas
+    oscilador.buffer = buffers[`${familiaSom}-${tipoBatida}`];
+    
+    oscilador.connect(audioCtx.destination);
+    oscilador.start(tempo);
 }
 
-// 2. Função que calcula qual o próximo som e quando ele deve tocar
-function nextNote() {
+function proximaNota() {
     const segundosPorBatida = 60.0 / parseInt(inputBpm.value);
-    nextNoteTime += segundosPorBatida;
+    proximoTempoDeNota += segundosPorBatida;
     
-    const temposNoCompasso = parseInt(selectCompasso.value);
-    currentBeat++;
-    
-    // Se chegou no fim do compasso, zera para voltar ao tempo 1
-    if (currentBeat >= temposNoCompasso) {
-        currentBeat = 0;
+    tempoAtual++;
+    if (tempoAtual >= parseInt(selectCompasso.value)) {
+        tempoAtual = 0;
     }
 }
 
-// 3. Função que "espeta" o som no motor de áudio na hora exata
-function scheduleNote(beatNumber, time) {
-    const source = audioCtx.createBufferSource();
-    
-    // Se for o tempo 0 (ou seja, o tempo 1 da música), toca o acento. Se não, toca o tick.
-    if (beatNumber === 0) {
-        source.buffer = acentoBuffer;
-    } else {
-        source.buffer = tickBuffer;
+function escalonador() {
+    while (proximoTempoDeNota < audioCtx.currentTime + 0.1) {
+        agendarNota(tempoAtual, proximoTempoDeNota);
+        proximaNota();
     }
-    
-    source.connect(audioCtx.destination);
-    source.start(time);
+    timerID = window.setTimeout(escalonador, 25.0);
 }
 
-// 4. O "Maestro": função que agenda os sons um pouquinho antes de tocarem para nunca atrasar
-function scheduler() {
-    while (nextNoteTime < audioCtx.currentTime + 0.1) {
-        scheduleNote(currentBeat, nextNoteTime);
-        nextNote();
-    }
-    timerID = setTimeout(scheduler, 25.0);
-}
-
-// 5. Ação do botão Play/Stop
+// Botão de Play/Stop
 btnPlayStop.addEventListener('click', () => {
-    // Aquele truque para contornar o bloqueio do navegador!
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-    }
-
-    isPlaying = !isPlaying;
-
     if (isPlaying) {
-        // Começa a tocar
-        currentBeat = 0;
-        nextNoteTime = audioCtx.currentTime + 0.05; // Dá um respiro de 50ms antes do primeiro bip
-        scheduler();
-        
-        // Atualiza a acessibilidade do botão
-        btnPlayStop.textContent = 'Parar Metrônomo';
-        btnPlayStop.setAttribute('aria-pressed', 'true');
+        window.clearTimeout(timerID);
+        isPlaying = false;
+        btnPlayStop.textContent = "Tocar Metrônomo";
     } else {
-        // Para de tocar
-        clearTimeout(timerID);
-        
-        // Volta o botão ao normal
-        btnPlayStop.textContent = 'Tocar Metrônomo';
-        btnPlayStop.setAttribute('aria-pressed', 'false');
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        tempoAtual = 0;
+        proximoTempoDeNota = audioCtx.currentTime + 0.05;
+        escalonador();
+        isPlaying = true;
+        btnPlayStop.textContent = "Parar Metrônomo";
     }
 });
 
-// Chama a função para carregar os sons assim que o script rodar
-carregarSons();
 // ==========================================
-// SISTEMA DE REPERTÓRIO (localStorage)
+// SISTEMA DE REPERTÓRIO E BOTÃO LIMPAR
 // ==========================================
-
-// Pegando os elementos da segunda parte do formulário
 const inputNomeMusica = document.getElementById('nome-musica');
 const btnSalvar = document.getElementById('btn-salvar');
 const selectListaMusicas = document.getElementById('lista-musicas');
 const btnCarregar = document.getElementById('btn-carregar');
 const btnExcluir = document.getElementById('btn-excluir');
-
-// Essa é a "chave" da gaveta onde vamos guardar tudo no navegador
+const btnLimpar = document.getElementById('btn-limpar');
 const CHAVE_ARMAZENAMENTO = 'metronomo_repertorio';
 
-// Função que lê a gaveta e cria as opções no menu suspenso (<select>)
 function atualizarListaMusicas() {
-    // Pega as músicas salvas ou cria uma lista vazia se não tiver nada
     const musicasSalvas = JSON.parse(localStorage.getItem(CHAVE_ARMAZENAMENTO)) || [];
-    
-    // Zera a lista no HTML deixando só a instrução inicial
     selectListaMusicas.innerHTML = '<option value="">Selecione uma música...</option>';
-
-    // Cria uma tag <option> para cada música salva
     musicasSalvas.forEach((musica, index) => {
         const option = document.createElement('option');
         option.value = index;
-        // Monta o texto de um jeito bem descritivo pro leitor de telas ler tudo de uma vez
         option.textContent = `${musica.nome} - ${musica.bpm} BPM, Compasso ${musica.compasso}`;
         selectListaMusicas.appendChild(option);
     });
 }
 
-// Ação 1: Salvar a música
 btnSalvar.addEventListener('click', () => {
-    const nome = inputNomeMusica.value.trim(); // .trim() tira espaços em branco sobrando
-    
+    const nome = inputNomeMusica.value.trim();
     if (nome === "") {
         alert("Por favor, digite um nome para a música antes de salvar.");
         inputNomeMusica.focus();
-        return; // Para a execução aqui se estiver vazio
+        return;
     }
-
-    // Cria o "pacote" com as informações atuais do formulário
     const novaMusica = {
         nome: nome,
         bpm: inputBpm.value,
-        compasso: selectCompasso.value
+        compasso: selectCompasso.value,
+        timbre: selectTipoSom.value // Agora salvamos o timbre escolhido também!
     };
-
-    // Abre a gaveta, coloca a música nova e fecha a gaveta
     const musicasSalvas = JSON.parse(localStorage.getItem(CHAVE_ARMAZENAMENTO)) || [];
     musicasSalvas.push(novaMusica);
     localStorage.setItem(CHAVE_ARMAZENAMENTO, JSON.stringify(musicasSalvas));
-    
-    // Atualiza a interface
     atualizarListaMusicas();
-    inputNomeMusica.value = ''; // Limpa o campo de texto
-    
-    // Dá o feedback acessível de sucesso
-    alert(`A música ${nome} foi salva com sucesso no seu repertório!`);
+    inputNomeMusica.value = '';
+    alert(`A música ${nome} foi salva com sucesso!`);
 });
 
-// Ação 2: Carregar a música selecionada
 btnCarregar.addEventListener('click', () => {
     const indexSelecionado = selectListaMusicas.value;
-    
     if (indexSelecionado === "") {
         alert("Selecione uma música na lista primeiro.");
         selectListaMusicas.focus();
         return;
     }
-
-    // Busca os dados da música escolhida
     const musicasSalvas = JSON.parse(localStorage.getItem(CHAVE_ARMAZENAMENTO)) || [];
     const musica = musicasSalvas[indexSelecionado];
-
-    // Atualiza os campos do metrônomo automaticamente
     inputBpm.value = musica.bpm;
     selectCompasso.value = musica.compasso;
     
-    alert(`Configurações de ${musica.nome} carregadas prontas para tocar.`);
+    // Se a música antiga não tinha timbre salvo, cai no padrão
+    selectTipoSom.value = musica.timbre ? musica.timbre : 'padrao'; 
     
-    // Joga o foco direto pro botão de Play para você já começar o ensaio
+    alert(`Configurações carregadas.`);
     btnPlayStop.focus(); 
 });
 
-// Ação 3: Excluir a música
 btnExcluir.addEventListener('click', () => {
     const indexSelecionado = selectListaMusicas.value;
-    
     if (indexSelecionado === "") {
-        alert("Selecione uma música na lista para excluir.");
+        alert("Selecione uma música para excluir.");
         return;
     }
-
     let musicasSalvas = JSON.parse(localStorage.getItem(CHAVE_ARMAZENAMENTO)) || [];
     const nomeExcluido = musicasSalvas[indexSelecionado].nome;
-    
-    // Remove o item da lista pela posição (index)
     musicasSalvas.splice(indexSelecionado, 1);
-    
-    // Salva a lista atualizada de volta na gaveta
     localStorage.setItem(CHAVE_ARMAZENAMENTO, JSON.stringify(musicasSalvas));
-    
     atualizarListaMusicas();
-    alert(`A música ${nomeExcluido} foi apagada.`);
-    selectListaMusicas.focus(); // Devolve o foco pra lista
+    alert(`Música ${nomeExcluido} apagada.`);
+    selectListaMusicas.focus();
 });
 
-// Executa essa função logo de cara para preencher o select caso você já tenha salvo algo antes
+// A Função nova que a Adri pediu
+btnLimpar.addEventListener('click', () => {
+    inputNomeMusica.value = '';
+    inputBpm.value = '120';
+    selectCompasso.value = '4';
+    selectTipoSom.value = 'padrao';
+    selectListaMusicas.value = '';
+    
+    alert("Campos limpos. Metrônomo resetado para os valores iniciais.");
+    inputBpm.focus(); // Joga o leitor de telas pro topo do formulário
+});
+
 atualizarListaMusicas();
+
 // ==========================================
 // REGISTRO DO SERVICE WORKER (PWA)
 // ==========================================
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
-            .then((registro) => {
-                console.log('Service Worker registrado com sucesso:', registro);
-            })
-            .catch((erro) => {
-                console.log('Erro ao registrar o Service Worker:', erro);
-            });
+            .then((registro) => { console.log('SW registrado'); })
+            .catch((erro) => { console.log('Erro no SW:', erro); });
     });
 }
